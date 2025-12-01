@@ -1460,3 +1460,88 @@ void OBSBasic::changeEvent(QEvent *event)
 {
 	QWidget::changeEvent(event);
 }
+
+// Restore missing methods required by other translation units
+void OBSBasic::OnEvent(enum obs_frontend_event event)
+{
+	// Minimal dispatch – extend if needed
+	UpdateTitleBar();
+}
+
+void OBSBasic::GetConfigFPS(uint32_t &num, uint32_t &den) const
+{
+	uint32_t type = config_get_uint(activeConfiguration, "Video", "FPSType");
+	if (type == 1)
+		GetFPSInteger(num, den);
+	else if (type == 2)
+		GetFPSFraction(num, den);
+	else
+		GetFPSCommon(num, den);
+}
+
+void OBSBasic::GetFPSCommon(uint32_t &num, uint32_t &den) const
+{
+	const char *val = config_get_string(activeConfiguration, "Video", "FPSCommon");
+	if (!val) { num = 30; den = 1; return; }
+	if (strcmp(val, "10") == 0) { num = 10; den = 1; }
+	else if (strcmp(val, "20") == 0) { num = 20; den = 1; }
+	else if (strcmp(val, "24 NTSC") == 0) { num = 24000; den = 1001; }
+	else if (strcmp(val, "25 PAL") == 0) { num = 25; den = 1; }
+	else if (strcmp(val, "29.97") == 0) { num = 30000; den = 1001; }
+	else if (strcmp(val, "48") == 0) { num = 48; den = 1; }
+	else if (strcmp(val, "50 PAL") == 0) { num = 50; den = 1; }
+	else if (strcmp(val, "59.94") == 0) { num = 60000; den = 1001; }
+	else if (strcmp(val, "60") == 0) { num = 60; den = 1; }
+	else { num = 30; den = 1; }
+}
+
+void OBSBasic::GetFPSInteger(uint32_t &num, uint32_t &den) const
+{
+	num = (uint32_t)config_get_uint(activeConfiguration, "Video", "FPSInt");
+	den = 1;
+}
+
+void OBSBasic::GetFPSFraction(uint32_t &num, uint32_t &den) const
+{
+	num = (uint32_t)config_get_uint(activeConfiguration, "Video", "FPSNum");
+	den = (uint32_t)config_get_uint(activeConfiguration, "Video", "FPSDen");
+}
+
+// Ensure slot implementation exists for Qt meta-object (was missing causing LNK error)
+void OBSBasic::on_actionOpenPluginManager_triggered()
+{
+	App()->pluginManagerOpenDialog();
+}
+
+// Ensure PromptForName implementation present (referenced by profiles/scene collections)
+OBSPromptResult OBSBasic::PromptForName(const OBSPromptRequest &request, const OBSPromptCallback &callback)
+{
+	OBSPromptResult result{};
+	result.optionValue = request.optionValue;
+	std::string input;
+	bool ok = false;
+	if (request.withOption) {
+		bool opt = request.optionValue;
+		ok = NameDialog::AskForNameWithOption(this,
+			QString::fromUtf8(request.title.c_str()),
+			QString::fromUtf8(request.prompt.c_str()),
+			input,
+			QString::fromUtf8(request.optionPrompt.c_str()),
+			opt,
+			QString::fromUtf8(request.promptValue.c_str()));
+		result.optionValue = opt;
+	} else {
+		ok = NameDialog::AskForName(this,
+			QString::fromUtf8(request.title.c_str()),
+			QString::fromUtf8(request.prompt.c_str()),
+			input,
+			QString::fromUtf8(request.promptValue.c_str()));
+	}
+	result.success = ok;
+	result.promptValue = input;
+	if (ok && callback) {
+		if (!callback(result))
+			result.success = false;
+	}
+	return result;
+}
