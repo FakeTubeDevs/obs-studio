@@ -22,6 +22,7 @@
 #include <util/windows/ComPtr.hpp>
 #include <util/windows/WinHandle.hpp>
 #include <util/windows/win-version.h>
+#include <util/platform.h>
 
 #include <Dwmapi.h>
 #include <audiopolicy.h>
@@ -48,10 +49,42 @@ static inline bool check_path(const char *data, const char *path, string &output
 	return os_file_exists(output.c_str());
 }
 
+static bool check_rundir_relative(const char *data, string &output)
+{
+    BPtr<char> exe_path = os_get_executable_path_ptr(nullptr);
+    if (!exe_path)
+        return false;
+
+    string exe = exe_path.Get();
+    for (auto &ch : exe) if (ch == '/') ch = '\\';
+
+    // Typical runtime path: ...\build_x64\rundir\<Config>\bin\64bit\obs64.exe
+    // We need:                ...\build_x64\rundir\<Config>\data\obs-studio\
+    size_t pos = exe.find("\\rundir\\");
+    if (pos == string::npos)
+        return false;
+
+    // Extract path up to end of <Config>
+    // Find next separator after 'rundir\\'
+    size_t cfgStart = pos + strlen("\\rundir\\");
+    size_t cfgSep = exe.find('\', cfgStart);
+    if (cfgSep == string::npos)
+        return false;
+    string rundirCfgRoot = exe.substr(0, cfgSep); // ...\build_x64\rundir\<Config>
+
+    ostringstream prefix;
+    prefix << rundirCfgRoot << "\\data\\obs-studio\\";
+    return check_path(data, prefix.str().c_str(), output);
+}
+
 bool GetDataFilePath(const char *data, string &output)
 {
 	if (check_path(data, "data/obs-studio/", output))
 		return true;
+
+    // Try OBS build tree rundir relative to executable location
+    if (check_rundir_relative(data, output))
+        return true;
 
 	return check_path(data, OBS_DATA_PATH "/obs-studio/", output);
 }
