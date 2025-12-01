@@ -5,11 +5,6 @@
 #include <obs-config.h>
 
 #include "rtmp-format-ver.h"
-#include "service-specific/twitch.h"
-#include "service-specific/nimotv.h"
-#include "service-specific/showroom.h"
-#include "service-specific/dacast.h"
-#include "service-specific/amazon-ivs.h"
 
 struct rtmp_common {
 	char *service;
@@ -39,9 +34,6 @@ static inline bool get_bool_val(json_t *service, const char *key);
 static inline const char *get_string_val(json_t *service, const char *key);
 static inline int get_int_val(json_t *service, const char *key);
 
-extern void twitch_ingests_refresh(int seconds);
-extern void amazon_ivs_ingests_refresh(int seconds);
-
 static void ensure_valid_url(struct rtmp_common *service, json_t *json, obs_data_t *settings)
 {
 	json_t *servers = json_object_get(json, "servers");
@@ -50,8 +42,6 @@ static void ensure_valid_url(struct rtmp_common *service, json_t *json, obs_data
 	size_t index;
 
 	if (!service->server || !servers || !json_is_array(servers))
-		return;
-	if (astrstri(service->service, "Facebook") == NULL)
 		return;
 
 	json_array_foreach (servers, index, server) {
@@ -411,78 +401,6 @@ static void properties_data_destroy(void *data)
 		json_decref(root);
 }
 
-static bool fill_twitch_servers_locked(obs_property_t *servers_prop)
-{
-	size_t count = twitch_ingest_count();
-
-	obs_property_list_add_string(servers_prop, obs_module_text("Server.Auto"), "auto");
-
-	if (count <= 1)
-		return false;
-
-	for (size_t i = 0; i < count; i++) {
-		struct ingest twitch_ing = twitch_ingest(i);
-		obs_property_list_add_string(servers_prop, twitch_ing.name, twitch_ing.url);
-	}
-
-	return true;
-}
-
-static inline bool fill_twitch_servers(obs_property_t *servers_prop)
-{
-	bool success;
-
-	twitch_ingests_lock();
-	success = fill_twitch_servers_locked(servers_prop);
-	twitch_ingests_unlock();
-
-	return success;
-}
-
-static bool fill_amazon_ivs_servers_locked(obs_property_t *servers_prop)
-{
-	struct dstr name_buffer = {0};
-	size_t count = amazon_ivs_ingest_count();
-	bool rtmps_available = obs_is_output_protocol_registered("RTMPS");
-
-	if (rtmps_available) {
-		obs_property_list_add_string(servers_prop, obs_module_text("Server.AutoRTMPS"), "auto-rtmps");
-	}
-	obs_property_list_add_string(servers_prop, obs_module_text("Server.AutoRTMP"), "auto-rtmp");
-
-	if (count <= 1)
-		return false;
-
-	if (rtmps_available) {
-		for (size_t i = 0; i < count; i++) {
-			struct ingest amazon_ivs_ing = amazon_ivs_ingest(i);
-			dstr_printf(&name_buffer, "%s (RTMPS)", amazon_ivs_ing.name);
-			obs_property_list_add_string(servers_prop, name_buffer.array, amazon_ivs_ing.rtmps_url);
-		}
-	}
-
-	for (size_t i = 0; i < count; i++) {
-		struct ingest amazon_ivs_ing = amazon_ivs_ingest(i);
-		dstr_printf(&name_buffer, "%s (RTMP)", amazon_ivs_ing.name);
-		obs_property_list_add_string(servers_prop, name_buffer.array, amazon_ivs_ing.url);
-	}
-
-	dstr_free(&name_buffer);
-
-	return true;
-}
-
-static inline bool fill_amazon_ivs_servers(obs_property_t *servers_prop)
-{
-	bool success;
-
-	amazon_ivs_ingests_lock();
-	success = fill_amazon_ivs_servers_locked(servers_prop);
-	amazon_ivs_ingests_unlock();
-
-	return success;
-}
-
 static void fill_servers(obs_property_t *servers_prop, json_t *service, const char *name)
 {
 	json_t *servers, *server;
@@ -498,22 +416,6 @@ static void fill_servers(obs_property_t *servers_prop, json_t *service, const ch
 		     "Servers for service '%s' not a valid object",
 		     name);
 		return;
-	}
-
-	/* Assumption: Twitch should be RTMP only, so no RTMPS check */
-	if (strcmp(name, "Twitch") == 0) {
-		if (fill_twitch_servers(servers_prop))
-			return;
-	}
-
-	/* Assumption:  Nimo TV should be RTMP only, so no RTMPS check in the ingest */
-	if (strcmp(name, "Nimo TV") == 0) {
-		obs_property_list_add_string(servers_prop, obs_module_text("Server.Auto"), "auto");
-	}
-
-	if (strcmp(name, "Amazon IVS") == 0) {
-		if (fill_amazon_ivs_servers(servers_prop))
-			return;
 	}
 
 	json_array_foreach (servers, index, server) {
@@ -701,7 +603,7 @@ static obs_properties_t *rtmp_common_properties(void *unused)
 		obs_properties_set_param(ppts, root, properties_data_destroy);
 
 	p = obs_properties_add_list(ppts, "service", obs_module_text("Service"), OBS_COMBO_TYPE_LIST,
-				    OBS_COMBO_FORMAT_STRING);
+					OBS_COMBO_FORMAT_STRING);
 
 	obs_property_set_modified_callback(p, service_selected);
 
@@ -824,85 +726,17 @@ static void rtmp_common_apply_settings(void *data, obs_data_t *video_settings, o
 static const char *rtmp_common_url(void *data)
 {
 	struct rtmp_common *service = data;
-
-	if (service->service && strcmp(service->service, "Twitch") == 0) {
-		if (service->server && strcmp(service->server, "auto") == 0) {
-			struct ingest twitch_ing;
-
-			twitch_ingests_refresh(3);
-
-			twitch_ingests_lock();
-			twitch_ing = twitch_ingest(0);
-			twitch_ingests_unlock();
-
-			return twitch_ing.url;
-		}
-	}
-
-	if (service->service && strcmp(service->service, "Amazon IVS") == 0) {
-		if (service->server && strncmp(service->server, "auto", 4) == 0) {
-			struct ingest amazon_ivs_ing;
-			bool rtmp = strcmp(service->server, "auto-rtmp") == 0;
-
-			amazon_ivs_ingests_refresh(3);
-
-			amazon_ivs_ingests_lock();
-			amazon_ivs_ing = amazon_ivs_ingest(0);
-			amazon_ivs_ingests_unlock();
-
-			return rtmp ? amazon_ivs_ing.url : amazon_ivs_ing.rtmps_url;
-		}
-	}
-
-	if (service->service && strcmp(service->service, "Nimo TV") == 0) {
-		if (service->server && strcmp(service->server, "auto") == 0) {
-			return nimotv_get_ingest(service->key);
-		}
-	}
-
-	if (service->service && strcmp(service->service, "SHOWROOM") == 0) {
-		if (service->server && service->key) {
-			struct showroom_ingest *ingest;
-			ingest = showroom_get_ingest(service->server, service->key);
-			return ingest->url;
-		}
-	}
-
-	if (service->service && strcmp(service->service, "Dacast") == 0) {
-		if (service->server && service->key) {
-			dacast_ingests_load_data(service->server, service->key);
-
-			struct dacast_ingest *ingest;
-			ingest = dacast_ingest(service->key);
-			return ingest->url;
-		}
-	}
 	return service->server;
 }
 
 static const char *rtmp_common_key(void *data)
 {
 	struct rtmp_common *service = data;
-	if (service->service && strcmp(service->service, "SHOWROOM") == 0) {
-		if (service->server && service->key) {
-			struct showroom_ingest *ingest;
-			ingest = showroom_get_ingest(service->server, service->key);
-			return ingest->key;
-		}
-	}
-
-	if (service->service && strcmp(service->service, "Dacast") == 0) {
-		if (service->key) {
-			struct dacast_ingest *ingest;
-			ingest = dacast_ingest(service->key);
-			return ingest->streamkey;
-		}
-	}
 	return service->key;
 }
 
 static void rtmp_common_get_supported_resolutions(void *data, struct obs_service_resolution **resolutions,
-						  size_t *count)
+					  size_t *count)
 {
 	struct rtmp_common *service = data;
 
@@ -1085,27 +919,13 @@ fail:
 
 static const char *rtmp_common_username(void *data)
 {
-	struct rtmp_common *service = data;
-	if (service->service && strcmp(service->service, "Dacast") == 0) {
-		if (service->key) {
-			struct dacast_ingest *ingest;
-			ingest = dacast_ingest(service->key);
-			return ingest->username;
-		}
-	}
+	UNUSED_PARAMETER(data);
 	return NULL;
 }
 
 static const char *rtmp_common_password(void *data)
 {
-	struct rtmp_common *service = data;
-	if (service->service && strcmp(service->service, "Dacast") == 0) {
-		if (service->key) {
-			struct dacast_ingest *ingest;
-			ingest = dacast_ingest(service->key);
-			return ingest->password;
-		}
-	}
+	UNUSED_PARAMETER(data);
 	return NULL;
 }
 
@@ -1148,10 +968,6 @@ static bool rtmp_common_can_try_to_connect(void *data)
 {
 	struct rtmp_common *service = data;
 	const char *key = rtmp_common_key(data);
-
-	if (service->service && strcmp(service->service, "Dacast") == 0)
-		return (key != NULL && key[0] != '\0');
-
 	const char *url = rtmp_common_url(data);
 
 	return (url != NULL && url[0] != '\0') && (key != NULL && key[0] != '\0');

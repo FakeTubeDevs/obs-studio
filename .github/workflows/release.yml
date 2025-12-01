@@ -1,0 +1,98 @@
+name: Build and release (Windows)
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (semver, e.g. 1.0.0). Leave empty to auto-detect."
+        required: false
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    env:
+      CONFIG: RelWithDebInfo
+    outputs:
+      VERSION: ${{ steps.ver.outputs.version }}
+      ARTIFACT: ${{ steps.pkg.outputs.artifact }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $inputVer = '${{ github.event.inputs.version }}'
+          $tagRef   = '${{ github.ref }}'
+          if ($inputVer) {
+            $v = $inputVer
+          } elseif ($tagRef -like 'refs/tags/*') {
+            $t = $tagRef.Replace('refs/tags/','')
+            if ($t.StartsWith('v')) { $t = $t.Substring(1) }
+            $v = $t
+          } else {
+            $v = "0.1.0-ci.${{ github.run_number }}"
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+
+      - name: Configure (CMake)
+        shell: pwsh
+        run: |
+          cmake -S . -B build_x64 -G "Visual Studio 17 2022" -A x64 -DOBS_VERSION_OVERRIDE="$env:VERSION" -DCMAKE_BUILD_TYPE=$env:CONFIG
+
+      - name: Build (CMake)
+        shell: pwsh
+        run: |
+          cmake --build build_x64 --config $env:CONFIG --parallel
+
+      - name: Locate output
+        id: out
+        shell: pwsh
+        run: |
+          $out = "build_x64/rundir/$env:CONFIG"
+          if (-not (Test-Path $out)) { $out = "build_x64/$env:CONFIG" }
+          "out=$out" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+      - name: Upload artifact
+        id: pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-faketube-${{ steps.ver.outputs.version }}-win64
+          if-no-files-found: error
+          path: |
+            ${{ steps.out.outputs.out }}/**/*
+
+  release:
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-2022
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: obs-faketube-${{ needs.build-windows.outputs.VERSION }}-win64
+          path: package
+
+      - name: Create zip
+        shell: pwsh
+        run: |
+          $zip = "obs-faketube-${{ needs.build-windows.outputs.VERSION }}-win64.zip"
+          Compress-Archive -Path (Get-ChildItem package -Recurse) -DestinationPath $zip
+          echo "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: FakeTube OBS v${{ needs.build-windows.outputs.VERSION }}
+          draft: false
+          prerelease: true
+          files: |
+            ${{ env.ZIP }}

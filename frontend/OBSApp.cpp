@@ -753,6 +753,27 @@ bool OBSApp::InitLocale()
 		blog(LOG_ERROR, "Could not find locale file '%s'", file.str().c_str());
 	}
 
+	// Branding overlay: optional locale overrides
+	{
+		string brandingPath;
+		stringstream brandingFile;
+		brandingFile << "branding/locale/" << lang << ".ini";
+		if (GetDataFilePath(brandingFile.str().c_str(), brandingPath)) {
+			if (text_lookup_add(textLookup, brandingPath.c_str())) {
+				blog(LOG_INFO, "Loaded branding locale overrides: %s", brandingFile.str().c_str());
+			} else {
+				blog(LOG_WARNING, "Failed to apply branding overrides: %s", brandingFile.str().c_str());
+			}
+		} else {
+			// Fallback to en-US if specific branding locale not found
+			string brandingDefault;
+			if (GetDataFilePath("branding/locale/" DEFAULT_LANG ".ini", brandingDefault)) {
+				if (text_lookup_add(textLookup, brandingDefault.c_str()))
+					blog(LOG_INFO, "Loaded branding locale overrides: branding/locale/" DEFAULT_LANG ".ini");
+			}
+		}
+	}
+
 	return true;
 }
 

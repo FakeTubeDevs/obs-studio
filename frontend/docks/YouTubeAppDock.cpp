@@ -369,11 +369,11 @@ void YouTubeAppDock::SetInitEvent(streaming_mode_t mode, const char *event, cons
 					%4 });
 		}
 	)""")
-				     .arg("OBS")
-				     .arg(version.c_str())
-				     .arg(mode == YTSM_ACCOUNT ? "'ACCOUNT'" : "'STREAM_KEY'")
-				     .arg(api_event)
-				     .toStdString();
+				 .arg("FakeTube Broadcast Studio")
+				 .arg(version.c_str())
+				 .arg(mode == YTSM_ACCOUNT ? "'ACCOUNT'" : "'STREAM_KEY'")
+				 .arg(api_event)
+				 .toStdString();
 	dockBrowser->setStartupScript(script);
 }
 

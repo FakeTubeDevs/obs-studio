@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28...3.30)
 
-option(ENABLE_SERVICE_UPDATES "Checks for service updates" ON)
+option(ENABLE_SERVICE_UPDATES "Checks for service updates" OFF)
 
 set(
   RTMP_SERVICES_URL
@@ -27,18 +27,6 @@ target_sources(
     rtmp-custom.c
     rtmp-format-ver.h
     rtmp-services-main.c
-    service-specific/amazon-ivs.c
-    service-specific/amazon-ivs.h
-    service-specific/dacast.c
-    service-specific/dacast.h
-    service-specific/nimotv.c
-    service-specific/nimotv.h
-    service-specific/service-ingest.c
-    service-specific/service-ingest.h
-    service-specific/showroom.c
-    service-specific/showroom.h
-    service-specific/twitch.c
-    service-specific/twitch.h
 )
 
 target_compile_definitions(

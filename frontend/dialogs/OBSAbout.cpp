@@ -19,6 +19,9 @@ OBSAbout::OBSAbout(QWidget *parent) : QDialog(parent), ui(new Ui::OBSAbout)
 
 	ui->setupUi(this);
 
+	// Brand name override
+	ui->name->setText("FakeTube Broadcast Studio");
+
 	QString bitness;
 
 	if (sizeof(void *) == 4)
@@ -36,7 +39,7 @@ OBSAbout::OBSAbout(QWidget *parent) : QDialog(parent), ui(new Ui::OBSAbout)
 		delete ui->donate;
 	} else {
 		ui->donate->setText("&nbsp;&nbsp;<a href='https://obsproject.com/contribute'>" + QTStr("About.Donate") +
-				    "</a>");
+				"</a>");
 		ui->donate->setTextInteractionFlags(Qt::TextBrowserInteraction);
 		ui->donate->setOpenExternalLinks(true);
 	}
