@@ -1400,7 +1400,32 @@ bool OBSApp::TranslateString(const char *lookupVal, const char **out) const
 			return true;
 	}
 
-	return text_lookup_getstr(App()->GetTextLookup(), lookupVal, out);
+	// Try direct lookup first
+	if (text_lookup_getstr(App()->GetTextLookup(), lookupVal, out))
+		return true;
+
+	// Try some normalized variants to handle inconsistent keys (legacy behavior)
+	std::string tmp = lookupVal ? lookupVal : "";
+
+	// Variant 1: remove spaces
+	std::string no_spaces = tmp;
+	no_spaces.erase(std::remove(no_spaces.begin(), no_spaces.end(), ' '), no_spaces.end());
+	if (!no_spaces.empty() && text_lookup_getstr(App()->GetTextLookup(), no_spaces.c_str(), out))
+		return true;
+
+	// Variant 2: remove dots
+	std::string no_dots = tmp;
+	no_dots.erase(std::remove(no_dots.begin(), no_dots.end(), '.'), no_dots.end());
+	if (!no_dots.empty() && text_lookup_getstr(App()->GetTextLookup(), no_dots.c_str(), out))
+		return true;
+
+	// Variant 3: remove spaces and dots
+	std::string no_spaces_dots = no_spaces;
+	no_spaces_dots.erase(std::remove(no_spaces_dots.begin(), no_spaces_dots.end(), '.'), no_spaces_dots.end());
+	if (!no_spaces_dots.empty() && text_lookup_getstr(App()->GetTextLookup(), no_spaces_dots.c_str(), out))
+		return true;
+
+	return false;
 }
 
 QStyle *OBSApp::GetInvisibleCursorStyle()

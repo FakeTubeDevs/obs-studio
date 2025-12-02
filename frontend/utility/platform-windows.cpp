@@ -58,16 +58,15 @@ static bool check_rundir_relative(const char *data, string &output)
     string exe = exe_path.Get();
     for (auto &ch : exe) if (ch == '/') ch = '\\';
 
-    // Typical runtime path: ...\build_x64\rundir\<Config>\bin\64bit\obs64.exe
-    // We need:                ...\build_x64\rundir\<Config>\data\obs-studio\
     size_t pos = exe.find("\\rundir\\");
+
     if (pos == string::npos)
         return false;
 
     // Extract path up to end of <Config>
     // Find next separator after 'rundir\\'
     size_t cfgStart = pos + strlen("\\rundir\\");
-    size_t cfgSep = exe.find('\', cfgStart);
+    size_t cfgSep = exe.find('\\', cfgStart);
     if (cfgSep == string::npos)
         return false;
     string rundirCfgRoot = exe.substr(0, cfgSep); // ...\build_x64\rundir\<Config>

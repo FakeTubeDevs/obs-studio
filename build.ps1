@@ -2,7 +2,10 @@ param(
   [string]$Generator = "Visual Studio 18 2026",
   [string]$Configuration = "RelWithDebInfo",
   [string]$Version = "30.0.0",
-  [string]$Arch = "x64"
+  [string]$Arch = "x64",
+  [switch]$Clean = $false,
+  [string[]]$Targets,
+  [switch]$NoPromptRun = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,7 +15,12 @@ function Invoke-CMake {
   Write-Host "==> Generating ($Generator, $Arch)" -ForegroundColor Cyan
   cmake -S $Src -B $Bld -G $Generator -A $Arch -DOBS_VERSION_OVERRIDE="$Version" -DCMAKE_BUILD_TYPE=$Configuration
   Write-Host "==> Building $Configuration" -ForegroundColor Cyan
-  cmake --build $Bld --config $Configuration --parallel
+  if ($Targets -and $Targets.Count -gt 0) {
+    Write-Host "Building targets: $($Targets -join ', ')" -ForegroundColor Cyan
+    cmake --build $Bld --config $Configuration --parallel --target $Targets
+  } else {
+    cmake --build $Bld --config $Configuration --parallel
+  }
 }
 
 # Root detection: script is expected to be placed in repository root (which contains CMakeLists.txt)
@@ -33,14 +41,23 @@ if (-not $desc -or -not ($desc -match '^[0-9]+\.[0-9]+\.[0-9]+')) {
   Write-Host "Detected version: $desc" -ForegroundColor Yellow
 }
 
-# Clean build dir
-if (Test-Path $BuildDir) {
-  Write-Host "Cleaning $BuildDir" -ForegroundColor Yellow
-  Remove-Item $BuildDir -Recurse -Force
+# Prepare build dir (incremental by default)
+if ($Clean) {
+  if (Test-Path $BuildDir) {
+    Write-Host "Cleaning $BuildDir" -ForegroundColor Yellow
+    try {
+      Remove-Item $BuildDir -Recurse -Force -ErrorAction Stop
+    } catch {
+      Write-Warning "Could not fully clean '$BuildDir' (files in use). Continuing with incremental build. Details: $($_.Exception.Message)"
+    }
+  }
 }
-New-Item -ItemType Directory -Path $BuildDir | Out-Null
 
-# Generate + Build
+if (-not (Test-Path $BuildDir)) {
+  New-Item -ItemType Directory -Path $BuildDir | Out-Null
+}
+
+# Generate + Build (cmake will only compile changed sources)
 Invoke-CMake -Src $Proj -Bld $BuildDir
 
 # Locate runtime exe (staged with DLLs)
@@ -67,5 +84,14 @@ if (Test-Path $rundirExe) {
     Write-Host "Found exe (unknown layout): $foundExe" -ForegroundColor Yellow
   } else {
     Write-Host "Executable not found. Check build output folders." -ForegroundColor Red
+  }
+}
+
+# Prompt to run
+if ($foundExe -and -not $NoPromptRun) {
+  $answer = Read-Host "Run OBS now? [Y/N]"
+  if ($answer -match '^(y|yes)$') {
+    Write-Host "Launching: $foundExe" -ForegroundColor Cyan
+    Start-Process -FilePath $foundExe
   }
 }
